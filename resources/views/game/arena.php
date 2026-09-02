@@ -53,7 +53,7 @@
                 </div>
             </div>
 
-            <div style="text-align: right; font-family: var(--font-display);">
+            <div class="hud-bottom-stats" style="text-align: right; font-family: var(--font-display);">
                 <div class="hud-wave-text" style="font-size: 1.5rem; font-weight: 800; color: var(--cyan);">WAVE 1</div>
                 <div style="font-size: 0.9rem; color: var(--text-muted);">
                     KILLS: <span class="hud-kills-text font-bold" style="color: #fff;">0</span>

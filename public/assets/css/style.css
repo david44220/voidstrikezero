@@ -916,7 +916,7 @@ h1, h2, h3, h4, .font-display {
 .touch-actions-zone {
   bottom: 2rem;
   right: 2rem;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 0.75rem;
   align-items: flex-end;
@@ -1015,14 +1015,24 @@ h1, h2, h3, h4, .font-display {
   .footer__grid {
     grid-template-columns: 1fr;
   }
-  .touch-zone {
-    display: block;
-  }
   .hud-status-bars {
     width: 200px;
   }
   .hud-score {
     font-size: 2rem;
+  }
+
+  /* Only display touch zones on touch/pointer coarse devices */
+  @media (pointer: coarse), (hover: none) {
+    .touch-joystick-zone {
+      display: block;
+    }
+    .touch-actions-zone {
+      display: flex;
+    }
+    .hud-bottom-stats {
+      margin-bottom: 7.5rem;
+    }
   }
 
   /* Portrait and Landscape Viewport Isolation */
