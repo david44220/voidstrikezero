@@ -138,24 +138,34 @@
 <script type="module">
     import { GameEngine } from '/assets/js/game/Engine.js';
 
-    const config = {
-        vehicle: '<?= e($selected_vehicle) ?>',
-        arena: '<?= e($selected_arena) ?>',
-        difficulty: '<?= e($selected_diff) ?>',
-        mode: '<?= e($mode) ?>',
-        challengeId: '<?= e($challenge['id'] ?? '') ?>',
-    };
-
-    const engine = new GameEngine(config);
-    window.gameEngine = engine;
-
-    // Start match
-    engine.start();
-
-    // Pause Resume Button
-    document.getElementById('btn-resume')?.addEventListener('click', () => {
-        engine.input.pause = false;
-        engine.hud.setPause(false);
+    window.addEventListener('error', (e) => {
+        console.error('Game runtime error:', e);
     });
+
+    try {
+        const config = {
+            vehicle: '<?= e($selected_vehicle) ?>',
+            arena: '<?= e($selected_arena) ?>',
+            difficulty: '<?= e($selected_diff) ?>',
+            mode: '<?= e($mode) ?>',
+            challengeId: '<?= e($challenge['id'] ?? '') ?>',
+        };
+
+        const engine = new GameEngine(config);
+        window.gameEngine = engine;
+
+        // Start match
+        engine.start().catch(err => {
+            console.warn('Match start error:', err);
+        });
+
+        // Pause Resume Button
+        document.getElementById('btn-resume')?.addEventListener('click', () => {
+            engine.input.pause = false;
+            engine.hud.setPause(false);
+        });
+    } catch (err) {
+        console.error('Engine boot error:', err);
+    }
 </script>
 <?php \App\Core\View::endSection(); ?>

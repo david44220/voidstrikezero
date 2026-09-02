@@ -3,7 +3,7 @@
  * Procedurally assembled 3D combat chassis: Striker, Titan, Phantom.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class Vehicle {
     constructor(type = 'striker', scene, audio) {

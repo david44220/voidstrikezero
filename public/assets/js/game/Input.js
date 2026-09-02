@@ -4,7 +4,7 @@
  * Includes edge-detected gamepad triggers and twin-stick mobile aiming.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class InputManager {
     constructor(canvas, camera) {

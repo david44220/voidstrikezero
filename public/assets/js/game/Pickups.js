@@ -3,7 +3,7 @@
  * Floating interactive collectibles with magnetic attraction and procedural geometry.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class PickupsManager {
     constructor(scene, audio) {

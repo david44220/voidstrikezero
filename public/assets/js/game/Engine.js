@@ -4,7 +4,7 @@
  * Includes Graphics Presets (Auto/Low/Med/High), Page Visibility throttling, Object Pooling, and Rival Ghost playback.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 import { GameAudio } from './Audio.js';
 import { InputManager } from './Input.js';
 import { TouchControls } from './TouchControls.js';
@@ -89,6 +89,12 @@ export class GameEngine {
         this.ai.onEnemyKilled = (enemy) => this.handleEnemyKilled(enemy);
 
         this.initEventListeners();
+
+        // Render first frame immediately so canvas is never blank
+        this.renderer.render(this.scene, this.camera);
+
+        // Start render loop immediately
+        requestAnimationFrame((now) => this.loop(now));
     }
 
     applyGraphicsPreset(preset) {
@@ -142,11 +148,8 @@ export class GameEngine {
 
         // Page Visibility API throttling
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                this.isPageHidden = true;
-                this.input.pause = true;
-            } else {
-                this.isPageHidden = false;
+            this.isPageHidden = document.hidden;
+            if (!document.hidden) {
                 this.lastFrameTime = performance.now();
             }
         });
@@ -161,11 +164,12 @@ export class GameEngine {
     }
 
     async start() {
-        this.hud.showNotice('SYNCHRONIZING WITH DEFENSE GRID...', 2000);
+        this.hud.showNotice('SYNCHRONIZING WITH DEFENSE GRID...', 1800);
 
         // Handshake with server to obtain cryptographic run token & server nonce
         try {
-            const resp = await window.vsFetch('/api/match/start', {
+            const fetchFn = window.vsFetch || window.fetch;
+            const resp = await fetchFn('/api/match/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -195,9 +199,6 @@ export class GameEngine {
 
         this.hud.showNotice('ENGAGE COMBAT // WAVE 1', 2200);
         this.spawnWave(this.wave);
-
-        // Start animation loop
-        requestAnimationFrame((now) => this.loop(now));
     }
 
     loop(now) {

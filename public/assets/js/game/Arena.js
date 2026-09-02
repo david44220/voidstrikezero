@@ -3,7 +3,7 @@
  * Procedural generation for Neon Core, Orbital Station, and Magma Foundry.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class Arena {
     constructor(arenaId = 'neon_core', scene) {

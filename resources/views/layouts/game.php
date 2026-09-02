@@ -18,6 +18,13 @@
             touch-action: none;
         }
     </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "/assets/vendor/three/three.module.js"
+        }
+    }
+    </script>
 </head>
 <body>
     <?= $slot ?>

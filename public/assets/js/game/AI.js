@@ -3,7 +3,7 @@
  * Multi-tiered tactical AI: Scout Drone, Assault Mech, Enforcer Heavy with Easy/Normal/Hard behaviors.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class AIManager {
     constructor(scene, weapons, audio, difficulty = 'normal') {

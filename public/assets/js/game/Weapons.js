@@ -3,7 +3,7 @@
  * Real Object Pooling for Projectiles and Particle Sparks with zero runtime GPU allocations.
  */
 
-import * as THREE from '../vendor/three/three.module.js';
+import * as THREE from '/assets/vendor/three/three.module.js';
 
 export class WeaponsManager {
     constructor(scene, audio) {
