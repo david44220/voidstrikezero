@@ -12,7 +12,7 @@ class Router
     private array $groupStack = [];
     private array $globalMiddleware = [];
 
-    public function use(string|callable $middleware): self
+    public function use(string|callable|object $middleware): self
     {
         $this->globalMiddleware[] = $middleware;
         return $this;
@@ -152,6 +152,9 @@ class Router
                 if (is_string($middleware)) {
                     $mw = new $middleware();
                     return $mw->handle($req, $next);
+                }
+                if (is_object($middleware) && method_exists($middleware, 'handle')) {
+                    return $middleware->handle($req, $next);
                 }
                 if (is_callable($middleware)) {
                     return $middleware($req, $next);
