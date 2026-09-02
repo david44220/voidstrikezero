@@ -1,0 +1,9 @@
+/node_modules
+/package-lock.json
+/package.json
+/.env
+/storage/logs/*.log
+/storage/cache/*
+/public/uploads/avatars/*
+!/public/uploads/avatars/.gitkeep
+/vendor
