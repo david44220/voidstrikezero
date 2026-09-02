@@ -69,7 +69,11 @@ class MatchEngineTest extends TestCase
 
         // Pilot should have gained XP
         $reloaded = User::find($pilot->id);
-        $this->assertEquals($initialXp + $result['xp_gained'], $reloaded->xp);
+        $totalXpAwarded = $result['xp_gained'];
+        foreach ($result['achievements'] as $ach) {
+            $totalXpAwarded += min(2000, (int) $ach['xp_reward']);
+        }
+        $this->assertEquals($initialXp + $totalXpAwarded, $reloaded->xp);
 
         // 3. Attempting to replay with the same run token MUST be rejected
         $replayRejected = false;
