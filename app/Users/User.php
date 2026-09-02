@@ -67,6 +67,11 @@ class User
         return $this->status === 'active';
     }
 
+    public function isEmailVerified(): bool
+    {
+        return $this->email_verified_at !== null;
+    }
+
     public function verifyPassword(string $plainPassword): bool
     {
         return password_verify($plainPassword, $this->password_hash);

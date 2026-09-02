@@ -1,6 +1,7 @@
 /**
  * VOIDSTRIKE ARENA — Master 3D Game Engine
  * Coordinates Three.js render loop, physics, AI waves, anti-cheat telemetry, and API validation.
+ * Includes Graphics Presets (Auto/Low/Med/High), Page Visibility throttling, Object Pooling, and Rival Ghost playback.
  */
 
 import * as THREE from '../vendor/three/three.module.js';
@@ -22,6 +23,7 @@ export class GameEngine {
         this.difficulty = config.difficulty || 'normal';
         this.mode = config.mode || 'quick';
         this.challengeId = config.challengeId || null;
+        this.opponentGhostData = Array.isArray(config.ghostData) ? config.ghostData : null;
 
         // Core systems
         this.audio = new GameAudio();
@@ -38,9 +40,10 @@ export class GameEngine {
             powerPreference: 'high-performance',
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
-        this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Graphics Quality Presets
+        this.currentPreset = 'auto';
+        this.applyGraphicsPreset('auto');
 
         // Game Components
         this.hud = new HUDManager();
@@ -71,24 +74,96 @@ export class GameEngine {
         this.telemetrySnapshots = [];
         this.lastSnapshotTime = 0;
 
+        // Rival Ghost Tracking
+        this.ghostCheckpoints = [];
+        this.lastGhostRecordTime = 0;
+        this.ghostMesh = null;
+        this.initRivalGhost();
+
+        // Performance & Page Visibility
+        this.fpsHistory = [];
+        this.lastFrameTime = performance.now();
+        this.isPageHidden = false;
+
         // Wire AI kill callback
         this.ai.onEnemyKilled = (enemy) => this.handleEnemyKilled(enemy);
 
-        this.initResizeListener();
+        this.initEventListeners();
     }
 
-    initResizeListener() {
+    applyGraphicsPreset(preset) {
+        this.currentPreset = preset;
+        let effective = preset;
+
+        if (preset === 'auto') {
+            const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || ('ontouchstart' in window);
+            effective = isMobile ? 'medium' : 'high';
+        }
+
+        if (effective === 'low') {
+            this.renderer.setPixelRatio(1.0);
+            this.renderer.shadowMap.enabled = false;
+        } else if (effective === 'medium') {
+            this.renderer.setPixelRatio(1.25);
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.BasicShadowMap;
+        } else { // high
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        }
+    }
+
+    initRivalGhost() {
+        if (!this.opponentGhostData || this.opponentGhostData.length === 0) return;
+
+        // Spawn holographic translucent wireframe ghost chassis
+        const geo = new THREE.ConeGeometry(0.85, 2.6, 4);
+        geo.rotateX(Math.PI / 2);
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0xbf00ff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.55,
+        });
+
+        this.ghostMesh = new THREE.Mesh(geo, mat);
+        this.ghostMesh.position.set(0, 0.5, 0);
+        this.scene.add(this.ghostMesh);
+    }
+
+    initEventListeners() {
+        // Viewport resize
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Page Visibility API throttling
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.isPageHidden = true;
+                this.input.pause = true;
+            } else {
+                this.isPageHidden = false;
+                this.lastFrameTime = performance.now();
+            }
+        });
+
+        // Wire graphics preset buttons if present
+        document.querySelectorAll('.btn-gfx').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const p = e.target.getAttribute('data-preset');
+                if (p) this.applyGraphicsPreset(p);
+            });
         });
     }
 
     async start() {
         this.hud.showNotice('SYNCHRONIZING WITH DEFENSE GRID...', 2000);
 
-        // 1. Handshake with server to obtain cryptographic run token
+        // Handshake with server to obtain cryptographic run token & server nonce
         try {
             const resp = await window.vsFetch('/api/match/start', {
                 method: 'POST',
@@ -108,12 +183,14 @@ export class GameEngine {
                 this.startNonce = data.handshake.start_nonce;
             }
         } catch (e) {
-            console.warn('Offline / local run token fallback: ', e);
+            console.warn('Network handshake fallback:', e);
             this.runToken = 'offline_token_' + Date.now();
+            this.startNonce = 'offline_nonce';
         }
 
         this.matchStartTime = performance.now();
         this.lastSnapshotTime = this.matchStartTime;
+        this.lastGhostRecordTime = this.matchStartTime;
         this.lastFrameTime = performance.now();
 
         this.hud.showNotice('ENGAGE COMBAT // WAVE 1', 2200);
@@ -126,8 +203,28 @@ export class GameEngine {
     loop(now) {
         if (this.isGameOver) return;
 
-        const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1); // clamp delta to prevent spiral
+        // Skip frame calculation when document is hidden in background
+        if (this.isPageHidden) {
+            requestAnimationFrame((t) => this.loop(t));
+            return;
+        }
+
+        const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
         this.lastFrameTime = now;
+
+        // Monitor dynamic FPS for Auto graphics preset
+        if (this.currentPreset === 'auto') {
+            const currentFps = 1 / Math.max(0.001, dt);
+            this.fpsHistory.push(currentFps);
+            if (this.fpsHistory.length > 120) {
+                this.fpsHistory.shift();
+                const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+                if (avgFps < 35 && this.renderer.getPixelRatio() > 1.0) {
+                    this.renderer.setPixelRatio(1.0);
+                    this.renderer.shadowMap.enabled = false;
+                }
+            }
+        }
 
         if (!this.input.pause) {
             this.update(dt, now);
@@ -143,8 +240,8 @@ export class GameEngine {
     update(dt, now) {
         this.matchDuration = (now - this.matchStartTime) / 1000;
 
-        // 1. Input & Player update
-        this.input.update();
+        // 1. Input & Player update (with auto-aim target resolution)
+        this.input.update(this.player, this.ai.enemies);
 
         // Fire player weapon
         if (this.input.fire) {
@@ -166,7 +263,12 @@ export class GameEngine {
         this.pickups.update(dt, this.player, this.arena.radius);
         this.ai.update(dt, this.player, this.arena, this.pickups);
 
-        // 3. Wave Progression
+        // 3. Update Rival Ghost Playback
+        if (this.ghostMesh && this.opponentGhostData) {
+            this.updateRivalGhost(this.matchDuration);
+        }
+
+        // 4. Wave Progression
         if (this.ai.enemies.length === 0 && !this.isGameOver) {
             this.wave++;
             this.score += 1500 * this.wave;
@@ -176,7 +278,7 @@ export class GameEngine {
             }, 1200);
         }
 
-        // 4. Combo Decay
+        // 5. Combo Decay
         if (this.comboTimer > 0) {
             this.comboTimer -= dt;
             if (this.comboTimer <= 0) {
@@ -184,7 +286,19 @@ export class GameEngine {
             }
         }
 
-        // 5. Periodic Telemetry Snapshots (every 3 seconds)
+        // 6. Ghost Checkpoint Recording (every 200ms, max 300 points)
+        if (now - this.lastGhostRecordTime >= 200 && this.ghostCheckpoints.length < 300) {
+            this.lastGhostRecordTime = now;
+            this.ghostCheckpoints.push([
+                Math.round(this.matchDuration * 10) / 10,
+                Math.round(this.player.position.x * 10) / 10,
+                Math.round(this.player.position.z * 10) / 10,
+                Math.round(this.player.mesh.rotation.y * 100) / 100,
+                this.input.fire ? 1 : 0
+            ]);
+        }
+
+        // 7. Periodic Telemetry Snapshots (every 3 seconds)
         if (now - this.lastSnapshotTime >= 3000) {
             this.lastSnapshotTime = now;
             this.telemetrySnapshots.push({
@@ -196,13 +310,36 @@ export class GameEngine {
             });
         }
 
-        // 6. HUD Update
+        // 8. HUD Update
         this.hud.update(this.player, this.score, this.combo, this.wave, this.kills);
 
-        // 7. Check Player Defeat
+        // 9. Check Player Defeat
         if (this.player.health <= 0 && !this.isGameOver) {
             this.handleGameOver(false);
         }
+    }
+
+    updateRivalGhost(time) {
+        if (!this.opponentGhostData || this.opponentGhostData.length === 0) return;
+
+        // Find surrounding checkpoints
+        let prev = this.opponentGhostData[0];
+        let next = this.opponentGhostData[this.opponentGhostData.length - 1];
+
+        for (let i = 0; i < this.opponentGhostData.length - 1; i++) {
+            if (this.opponentGhostData[i][0] <= time && this.opponentGhostData[i + 1][0] >= time) {
+                prev = this.opponentGhostData[i];
+                next = this.opponentGhostData[i + 1];
+                break;
+            }
+        }
+
+        const tDiff = Math.max(0.001, next[0] - prev[0]);
+        const alpha = Math.min(1, Math.max(0, (time - prev[0]) / tDiff));
+
+        this.ghostMesh.position.x = prev[1] + (next[1] - prev[1]) * alpha;
+        this.ghostMesh.position.z = prev[2] + (next[2] - prev[2]) * alpha;
+        this.ghostMesh.rotation.y = prev[3] + (next[3] - prev[3]) * alpha;
     }
 
     spawnWave(waveNum) {
@@ -226,7 +363,7 @@ export class GameEngine {
 
         // Combo system
         this.combo = Math.min(5.0, this.combo + 0.5);
-        this.comboTimer = 3.8; // 3.8s window to maintain combo
+        this.comboTimer = 3.8;
         if (this.combo > this.comboMax) {
             this.comboMax = this.combo;
         }
@@ -263,7 +400,11 @@ export class GameEngine {
             shots_hit: this.weapons.shotsHit,
             damage_dealt: this.weapons.totalDamageDealt,
             damage_taken: Math.round(this.player.maxHealth - this.player.health),
+            absorbed_damage: Math.round(this.player.damageAbsorbed || 0),
+            phase_shifts: Math.round(this.player.phaseShiftsCount || 0),
+            specials_used: Math.round(this.player.specialsUsed || 0),
             telemetry: this.telemetrySnapshots,
+            ghost: this.ghostCheckpoints,
         };
 
         try {
@@ -283,7 +424,7 @@ export class GameEngine {
                     kills: this.kills,
                     duration: duration,
                     xp_gained: 0,
-                    status: 'error_or_unranked',
+                    status: 'flagged_or_invalidated',
                 });
             }
         } catch (e) {
@@ -297,5 +438,11 @@ export class GameEngine {
                 status: 'offline',
             });
         }
+    }
+
+    dispose() {
+        this.weapons.dispose();
+        this.arena.dispose();
+        this.renderer.dispose();
     }
 }

@@ -1024,6 +1024,54 @@ h1, h2, h3, h4, .font-display {
   .hud-score {
     font-size: 2rem;
   }
+
+  /* Portrait and Landscape Viewport Isolation */
+  @media (orientation: portrait) {
+    .touch-joystick-zone {
+      bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+      left: calc(1rem + env(safe-area-inset-left, 0px));
+      width: 120px;
+      height: 120px;
+    }
+    .touch-actions-zone {
+      bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+      right: calc(1rem + env(safe-area-inset-right, 0px));
+    }
+    .hud-status-bars {
+      width: 160px;
+    }
+    .hud-wave-text {
+      font-size: 1.2rem !important;
+    }
+  }
+
+  @media (orientation: landscape) and (max-height: 500px) {
+    .touch-joystick-zone {
+      bottom: 0.75rem;
+      left: 1.5rem;
+      width: 100px;
+      height: 100px;
+    }
+    .touch-actions-zone {
+      bottom: 0.75rem;
+      right: 1.5rem;
+    }
+    .touch-btn {
+      width: 48px;
+      height: 48px;
+      font-size: 0.75rem;
+    }
+    .touch-btn--fire {
+      width: 58px;
+      height: 58px;
+    }
+    .hud-top {
+      padding: 0.5rem 1rem;
+    }
+    .hud-score {
+      font-size: 1.6rem;
+    }
+  }
 }
 
 /* Reduced Motion Support */

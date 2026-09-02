@@ -24,6 +24,11 @@ class ChallengeRepository
 
     public static function listActive(int $limit = 20): array
     {
+        try {
+            Database::query("UPDATE challenges SET status = 'expired' WHERE status = 'active' AND expires_at <= CURRENT_TIMESTAMP");
+        } catch (\Throwable) {
+        }
+
         return Database::select(
             "SELECT c.*, u.username as creator_username, u.display_name as creator_name, u.avatar_url as creator_avatar,
                     ba.score as best_score, bu.username as best_username, bu.display_name as best_challenger_name
@@ -31,7 +36,7 @@ class ChallengeRepository
              INNER JOIN users u ON u.id = c.creator_id
              LEFT JOIN challenge_attempts ba ON ba.id = c.best_attempt_id
              LEFT JOIN users bu ON bu.id = ba.user_id
-             WHERE c.status = 'active'
+             WHERE c.status = 'active' AND c.expires_at > CURRENT_TIMESTAMP
              ORDER BY c.created_at DESC LIMIT :lim",
             [':lim' => $limit]
         );
@@ -86,5 +91,54 @@ class ChallengeRepository
              ORDER BY ca.score DESC, ca.created_at ASC LIMIT :lim",
             [':cid' => $challengeId, ':lim' => $limit]
         );
+    }
+
+    public static function recordAttempt(string $challengeId, ?int $userId, string $matchId, int $score): ?string
+    {
+        $challenge = Database::selectOne("SELECT * FROM challenges WHERE id = :id", [':id' => $challengeId]);
+        if (!$challenge) {
+            return null;
+        }
+
+        if ($userId === null) {
+            return null;
+        }
+
+        $attemptId = 'att_' . bin2hex(random_bytes(10));
+        $isBeaten = $score >= (int) $challenge['target_score'];
+
+        Database::insert('challenge_attempts', [
+            'id' => $attemptId,
+            'challenge_id' => $challengeId,
+            'user_id' => $userId,
+            'match_id' => $matchId,
+            'score' => $score,
+            'is_beaten' => $isBeaten,
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        Database::query(
+            "UPDATE challenges SET challenger_count = challenger_count + 1 WHERE id = :id",
+            [':id' => $challengeId]
+        );
+
+        $priorBestScore = 0;
+        if (!empty($challenge['best_attempt_id'])) {
+            $currentBest = Database::selectOne(
+                "SELECT score FROM challenge_attempts WHERE id = :id",
+                [':id' => $challenge['best_attempt_id']]
+            );
+            if ($currentBest) {
+                $priorBestScore = (int) $currentBest['score'];
+            }
+        }
+
+        if ($score > $priorBestScore) {
+            Database::update('challenges', [
+                'best_attempt_id' => $attemptId,
+            ], 'id = :id', [':id' => $challengeId]);
+        }
+
+        return $attemptId;
     }
 }

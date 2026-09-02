@@ -289,4 +289,10 @@ export class Arena {
             }
         });
     }
+
+    dispose() {
+        this.obstacles = [];
+        this.hazards = [];
+        this.rotatingPillars = [];
+    }
 }

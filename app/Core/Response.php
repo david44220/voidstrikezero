@@ -65,17 +65,22 @@ class Response
         return $this;
     }
 
+    public function getHeader(string $name): ?string
+    {
+        return $this->headers[$name] ?? null;
+    }
+
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
+
     public function withHeaders(array $headers): self
     {
         foreach ($headers as $k => $v) {
             $this->headers[$k] = $v;
         }
         return $this;
-    }
-
-    public function getHeaders(): array
-    {
-        return $this->headers;
     }
 
     public function cookie(

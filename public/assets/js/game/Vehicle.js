@@ -334,6 +334,7 @@ export class Vehicle {
         this.energy -= this.specialCost;
         this.specialCooldownTimer = this.specialCooldown;
         this.specialActiveTimer = this.specialDuration;
+        this.specialsUsed = (this.specialsUsed || 0) + 1;
 
         if (this.type === 'titan') {
             // Kinetic Dome: Invulnerable spherical forcefield
@@ -344,6 +345,7 @@ export class Vehicle {
             // Phase Shift: Subspace blink forward
             this.isInvulnerable = true;
             this.shieldMesh.visible = true;
+            this.phaseShiftsCount = (this.phaseShiftsCount || 0) + 1;
             const blinkVec = new THREE.Vector3(Math.sin(this.rotation), 0, Math.cos(this.rotation)).multiplyScalar(14);
             this.position.add(blinkVec);
             if (this.audio) this.audio.dash();
@@ -363,6 +365,9 @@ export class Vehicle {
 
     takeDamage(amount) {
         if (this.isInvulnerable) {
+            if (this.type === 'titan' && this.specialActiveTimer > 0) {
+                this.damageAbsorbed = (this.damageAbsorbed || 0) + amount;
+            }
             return 0; // Completely absorbed
         }
 
@@ -373,6 +378,22 @@ export class Vehicle {
         this.flashDamage();
 
         return amount;
+    }
+
+    dispose() {
+        this.mesh.traverse((child) => {
+            if (child.isMesh) {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            }
+        });
+        this.scene.remove(this.mesh);
     }
 
     flashDamage() {

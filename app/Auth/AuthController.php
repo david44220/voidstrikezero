@@ -7,7 +7,9 @@ namespace App\Auth;
 use App\Core\Database;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Session;
 use App\Core\Validator;
+use App\Mail\MailService;
 use App\Users\User;
 
 class AuthController
@@ -32,7 +34,6 @@ class AuthController
 
         $login = trim((string) $request->input('login'));
         $password = (string) $request->input('password');
-        $remember = (bool) $request->input('remember', false);
 
         // Find user by username or email
         $user = User::findByUsername($login) ?? User::findByEmail($login);
@@ -48,7 +49,7 @@ class AuthController
             return redirect('/login');
         }
 
-        AuthService::login($user, $remember);
+        AuthService::login($user);
         flash('success', __('auth.login_title') . ' // ' . e($user->display_name));
 
         return redirect('/dashboard');
@@ -90,15 +91,97 @@ class AuthController
             'preferred_locale' => session()->get('locale', 'en'),
             'role' => 'player',
             'status' => 'active',
-            'email_verified_at' => gmdate('Y-m-d H:i:s'), // Auto-verified in local environment
+            'email_verified_at' => null, // Explicitly require verification
             'xp' => 0,
             'level' => 1,
         ]);
 
         $user->save();
 
+        // Generate email verification token
+        $rawVerifyToken = bin2hex(random_bytes(32));
+        $verifyTokenHash = hash('sha256', $rawVerifyToken);
+        Database::insert('email_verifications', [
+            'user_id' => $user->id,
+            'token_hash' => $verifyTokenHash,
+            'expires_at' => gmdate('Y-m-d H:i:s', time() + 86400),
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        // Send email verification via mail abstraction
+        MailService::sendEmailVerification($email, $rawVerifyToken);
+
         AuthService::login($user);
         flash('success', __('auth.registered_success'));
+
+        return redirect('/dashboard');
+    }
+
+    public function verifyEmail(Request $request): Response
+    {
+        $rawToken = (string) $request->query('token');
+        $email = strtolower(trim((string) $request->query('email')));
+
+        if (empty($rawToken) || empty($email)) {
+            flash('error', 'Invalid verification link.');
+            return redirect('/dashboard');
+        }
+
+        $tokenHash = hash('sha256', $rawToken);
+        $record = Database::selectOne(
+            "SELECT ev.*, u.id as matched_user_id 
+             FROM email_verifications ev
+             JOIN users u ON u.id = ev.user_id
+             WHERE LOWER(u.email) = LOWER(:email) AND ev.token_hash = :hash AND ev.expires_at > CURRENT_TIMESTAMP",
+            [':email' => $email, ':hash' => $tokenHash]
+        );
+
+        if (!$record) {
+            flash('error', 'Verification token is invalid or has expired.');
+            return redirect('/dashboard');
+        }
+
+        $user = User::find((int) $record['matched_user_id']);
+        if ($user) {
+            $user->email_verified_at = gmdate('Y-m-d H:i:s');
+            $user->save();
+
+            // Purge consumed verification record
+            Database::delete('email_verifications', 'user_id = :uid', [':uid' => $user->id]);
+
+            flash('success', 'Pilot neural-link email verified successfully!');
+        }
+
+        return redirect('/dashboard');
+    }
+
+    public function resendVerification(Request $request): Response
+    {
+        $user = AuthService::user();
+        if (!$user) {
+            return redirect('/login');
+        }
+
+        if ($user->isEmailVerified()) {
+            flash('info', 'Your email address is already verified.');
+            return redirect('/dashboard');
+        }
+
+        // Purge old tokens
+        Database::delete('email_verifications', 'user_id = :uid', [':uid' => $user->id]);
+
+        // Generate new token
+        $rawVerifyToken = bin2hex(random_bytes(32));
+        $verifyTokenHash = hash('sha256', $rawVerifyToken);
+        Database::insert('email_verifications', [
+            'user_id' => $user->id,
+            'token_hash' => $verifyTokenHash,
+            'expires_at' => gmdate('Y-m-d H:i:s', time() + 86400),
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+
+        MailService::sendEmailVerification($user->email, $rawVerifyToken);
+        flash('success', 'Verification link dispatched to your email address.');
 
         return redirect('/dashboard');
     }
@@ -118,9 +201,13 @@ class AuthController
     public function sendResetLink(Request $request): Response
     {
         $email = strtolower(trim((string) $request->input('email')));
+
         if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $user = User::findByEmail($email);
             if ($user) {
+                // Purge prior reset tokens for this user
+                Database::delete('password_resets', 'email = :email', [':email' => $email]);
+
                 $rawToken = bin2hex(random_bytes(32));
                 $tokenHash = hash('sha256', $rawToken);
                 $expiresAt = gmdate('Y-m-d H:i:s', time() + 3600);
@@ -132,11 +219,12 @@ class AuthController
                     'created_at' => gmdate('Y-m-d H:i:s'),
                 ]);
 
-                // Store in flash for testing/demo display
-                flash('info', "Recovery token generated: {$rawToken} (Valid for 1 hour)");
+                // Deliver securely via MailService without exposing raw token in UI
+                MailService::sendPasswordReset($email, $rawToken);
             }
         }
 
+        // Always show the same generic confirmation to prevent user enumeration
         flash('success', __('auth.reset_link_sent'));
         return redirect('/forgot-password');
     }
@@ -144,7 +232,12 @@ class AuthController
     public function showResetPassword(Request $request): Response
     {
         $token = (string) $request->query('token');
-        return view('auth.reset_password', ['title' => __('auth.reset_title'), 'token' => $token]);
+        $email = (string) $request->query('email');
+        return view('auth.reset_password', [
+            'title' => __('auth.reset_title'),
+            'token' => $token,
+            'email' => $email,
+        ]);
     }
 
     public function resetPassword(Request $request): Response
@@ -157,7 +250,7 @@ class AuthController
 
         if ($validator->fails()) {
             flash('error', $validator->firstError());
-            return redirect('/reset-password?token=' . urlencode((string) $request->input('token')));
+            return redirect('/reset-password?token=' . urlencode((string) $request->input('token')) . '&email=' . urlencode((string) $request->input('email')));
         }
 
         $rawToken = (string) $request->input('token');
@@ -166,7 +259,8 @@ class AuthController
 
         $tokenHash = hash('sha256', $rawToken);
         $reset = Database::selectOne(
-            "SELECT * FROM password_resets WHERE email = :email AND token_hash = :hash AND expires_at > CURRENT_TIMESTAMP",
+            "SELECT * FROM password_resets 
+             WHERE email = :email AND token_hash = :hash AND expires_at > CURRENT_TIMESTAMP",
             [':email' => $email, ':hash' => $tokenHash]
         );
 
@@ -182,6 +276,9 @@ class AuthController
 
             // Purge used tokens
             Database::delete('password_resets', 'email = :email', [':email' => $email]);
+
+            // Invalidate existing sessions
+            Session::getInstance()->destroy();
 
             flash('success', __('auth.password_reset_success'));
             return redirect('/login');

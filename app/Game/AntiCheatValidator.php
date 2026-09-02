@@ -23,6 +23,7 @@ class AntiCheatValidator
 
         $diffCfg = config("game.difficulties.{$difficulty}", config('game.difficulties.normal'));
         $vehicleCfg = config("game.vehicles.{$vehicle}", config('game.vehicles.striker'));
+        $diffMultiplier = (float) ($diffCfg['score_multiplier'] ?? 1.0);
 
         // 1. Check Duration Limits
         $minDuration = (int) ($cfg['min_match_duration'] ?? 25);
@@ -46,17 +47,25 @@ class AntiCheatValidator
             $riskScore += 45;
         }
 
-        // 2. Score Rate Sanity Check
+        // 2. Start Nonce Validation
+        $clientNonce = (string) ($data['start_nonce'] ?? '');
+        $expectedNonce = (string) ($tokenRecord['start_nonce'] ?? '');
+        if ($expectedNonce !== '' && (!hash_equals($expectedNonce, $clientNonce))) {
+            $flags[] = "START_NONCE_MISMATCH: Cryptographic start nonce mismatch";
+            $riskScore += 80;
+        }
+
+        // 3. Score Rate Sanity Check
         $effectiveDuration = max(1, $duration);
         $scorePerSecond = $score / $effectiveDuration;
-        $maxScorePerSec = (float) ($cfg['max_score_per_second'] ?? 280) * ($diffCfg['score_multiplier'] ?? 1.0);
+        $maxScorePerSec = (float) ($cfg['max_score_per_second'] ?? 280) * $diffMultiplier;
 
         if ($scorePerSecond > $maxScorePerSec) {
             $flags[] = sprintf("IMPOSSIBLE_SCORE_RATE: %.1f pts/sec exceeds theoretical maximum ceiling %.1f pts/sec", $scorePerSecond, $maxScorePerSec);
             $riskScore += 80;
         }
 
-        // 3. Absolute Score Bounds
+        // 4. Absolute Score Bounds
         if ($score < 0) {
             $flags[] = "NEGATIVE_SCORE: Score cannot be negative";
             $riskScore += 100;
@@ -67,7 +76,7 @@ class AntiCheatValidator
             $riskScore += 100;
         }
 
-        // 4. Kill Rate Sanity Check
+        // 5. Kill Rate Sanity Check
         $killsPerSecond = $kills / $effectiveDuration;
         $maxKillsPerSec = (float) ($cfg['max_kills_per_second'] ?? 1.8);
 
@@ -76,24 +85,77 @@ class AntiCheatValidator
             $riskScore += 70;
         }
 
-        // 5. Waves vs Kills Ratio
-        // Each wave spawns at least 3-6 drones
-        if ($waves > 0 && ($kills / $waves) > 25) {
-            $flags[] = sprintf("KILL_WAVE_INCONSISTENCY: %d kills over %d waves exceeds wave spawn capacity", $kills, $waves);
-            $riskScore += 40;
+        // 6. Wave Sanity & Duration Cross-Checks
+        if ($waves > 0) {
+            // Each wave requires at least 6 seconds to spawn and defeat
+            $minWaveDuration = $waves * 6;
+            if ($duration < $minWaveDuration) {
+                $flags[] = sprintf("WAVE_DURATION_ANOMALY: %d waves claimed in only %ds (minimum %ds required)", $waves, $duration, $minWaveDuration);
+                $riskScore += 55;
+            }
+
+            // Each wave requires at least 1 kill to complete
+            if ($kills < $waves) {
+                $flags[] = sprintf("KILL_WAVE_DEFICIT: %d kills cannot clear %d waves", $kills, $waves);
+                $riskScore += 50;
+            }
+
+            // Waves vs Kills Ratio (maximum 25 drones per wave)
+            if (($kills / $waves) > 25) {
+                $flags[] = sprintf("KILL_WAVE_INCONSISTENCY: %d kills over %d waves exceeds wave spawn capacity", $kills, $waves);
+                $riskScore += 40;
+            }
         }
 
-        // 6. Combo Multiplier Ceiling
+        // 7. Theoretical Combat Score Ceiling (kills * max_points + wave_bonuses)
+        $waveBonusSum = 0;
+        for ($w = 1; $w <= $waves; $w++) {
+            $waveBonusSum += (1500 * $w);
+        }
+        $maxTheoreticalScore = ($kills * 600 * 5.0) + ($waveBonusSum * $diffMultiplier) + 3000;
+        if ($score > $maxTheoreticalScore) {
+            $flags[] = sprintf("SCORE_EXCEEDS_COMBAT_CEILING: Score %d exceeds combat ceiling %d pts for %d kills / %d waves", $score, (int) $maxTheoreticalScore, $kills, $waves);
+            $riskScore += 75;
+        }
+
+        // 8. Combo Multiplier Ceiling
         $maxCombo = (int) ($cfg['max_combo_multiplier'] ?? 5);
         if ($comboMax > $maxCombo) {
             $flags[] = "COMBO_CEILING_EXCEEDED: Combo {$comboMax}x exceeds absolute engine limit {$maxCombo}x";
             $riskScore += 60;
         }
 
-        // 7. Telemetry Sequence Analysis (if snapshots provided)
+        // 9. Combat Telemetry Cross-Checks (Ballistics & Damage)
+        $shotsFired = (int) ($data['shots_fired'] ?? 0);
+        $shotsHit = (int) ($data['shots_hit'] ?? 0);
+        $damageDealt = (int) ($data['damage_dealt'] ?? 0);
+        $damageTaken = (int) ($data['damage_taken'] ?? 0);
+
+        if ($shotsFired > 0 && $shotsHit > $shotsFired) {
+            $flags[] = "SHOTS_INCONSISTENCY: Shots hit ({$shotsHit}) cannot exceed shots fired ({$shotsFired})";
+            $riskScore += 60;
+        }
+
+        if ($kills > 0 && $shotsFired > 0 && $shotsHit < $kills) {
+            $flags[] = "SHOTS_KILL_DEFICIT: Shots hit ({$shotsHit}) insufficient for {$kills} confirmed kills";
+            $riskScore += 45;
+        }
+
+        if ($shotsHit > 0 && $damageDealt > ($shotsHit * 200 * $maxCombo)) {
+            $flags[] = "DAMAGE_DEALT_EXCEEDS_BALLISTIC_CEILING: Damage dealt exceeds ballistic limits";
+            $riskScore += 55;
+        }
+
+        // 10. Telemetry Stream Validation (Required for runs >= minDuration)
+        if ($duration >= $minDuration) {
+            if (empty($telemetry) || count($telemetry) < 3) {
+                $flags[] = "TELEMETRY_MISSING_OR_INSUFFICIENT: Match duration ({$duration}s) requires coherent telemetry snapshots";
+                $riskScore += 45;
+            }
+        }
+
         if (!empty($telemetry)) {
             $prevScore = 0;
-            $maxRecordedHull = 0;
             $maxChassisHull = (int) ($vehicleCfg['max_health'] ?? 100);
 
             foreach ($telemetry as $index => $tick) {

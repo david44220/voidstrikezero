@@ -63,10 +63,21 @@ $router->post('/forgot-password', [AuthController::class, 'sendResetLink'], [
 $router->get('/reset-password', [AuthController::class, 'showResetPassword'], [GuestMiddleware::class]);
 $router->post('/reset-password', [AuthController::class, 'resetPassword'], [GuestMiddleware::class]);
 
+// Email Verification Routes
+$router->get('/verify-email', [AuthController::class, 'verifyEmail']);
+$router->post('/verify-email/resend', [AuthController::class, 'resendVerification'], [
+    AuthMiddleware::class,
+    new RateLimitMiddleware('verify_resend', 3, 300),
+]);
+
 // Authenticated Pilot Dashboard & Settings
 $router->get('/dashboard', [UserController::class, 'dashboard'], [AuthMiddleware::class]);
 $router->get('/settings', [UserController::class, 'showSettings'], [AuthMiddleware::class]);
 $router->post('/settings', [UserController::class, 'updateSettings'], [AuthMiddleware::class]);
+$router->post('/settings/password', [UserController::class, 'changePassword'], [
+    AuthMiddleware::class,
+    new RateLimitMiddleware('password_change', 5, 60),
+]);
 
 // Notifications
 $router->get('/notifications', [NotificationController::class, 'index'], [AuthMiddleware::class]);
@@ -79,6 +90,8 @@ $router->group(['prefix' => '/admin', 'middleware' => [AdminMiddleware::class]],
     $r->get('/matches', [AdminController::class, 'matches']);
     $r->get('/challenges', [AdminController::class, 'challenges']);
     $r->get('/audit', [AdminController::class, 'audit']);
+    $r->get('/settings', [AdminController::class, 'settings']);
+    $r->post('/settings', [AdminController::class, 'updateSettings']);
 
     $r->post('/users/ban', [AdminController::class, 'banUser']);
     $r->post('/users/unban', [AdminController::class, 'unbanUser']);

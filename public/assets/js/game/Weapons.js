@@ -1,6 +1,6 @@
 /**
- * VOIDSTRIKE ARENA — Weapons & Projectile Engine
- * Projectile object pooling, laser raycasts, and impact effect particle bursts.
+ * VOIDSTRIKE ARENA — High-Performance Projectile Engine
+ * Real Object Pooling for Projectiles and Particle Sparks with zero runtime GPU allocations.
  */
 
 import * as THREE from '../vendor/three/three.module.js';
@@ -14,12 +14,16 @@ export class WeaponsManager {
         this.enemyBullets = [];
         this.particles = [];
 
+        // Inactive Pools for reuse
+        this.bulletPool = [];
+        this.particlePool = [];
+
         this.fireCooldown = 0;
         this.shotsFired = 0;
         this.shotsHit = 0;
         this.totalDamageDealt = 0;
 
-        // Shared geometries and materials for pooling
+        // Shared geometries & materials to eliminate memory leaks
         this.plasmaGeo = new THREE.SphereGeometry(0.2, 6, 6);
         this.plasmaMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
 
@@ -32,6 +36,13 @@ export class WeaponsManager {
 
         this.enemyGeo = new THREE.SphereGeometry(0.22, 6, 6);
         this.enemyMat = new THREE.MeshBasicMaterial({ color: 0xff2a5f });
+
+        this.sparkGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+        this.sparkMatCyan = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+        this.sparkMatOrange = new THREE.MeshBasicMaterial({ color: 0xff3b00 });
+        this.sparkMatRed = new THREE.MeshBasicMaterial({ color: 0xff2a5f });
+
+        this.explosionGeo = new THREE.DodecahedronGeometry(0.18);
     }
 
     firePlayerWeapon(vehicle) {
@@ -56,7 +67,7 @@ export class WeaponsManager {
         } else if (vType === 'titan') {
             baseRate = 0.55;
             damage = 60;
-            this.spawnBullet(pos, rot, 30, damage, 'heavy', 0, 3.5); // AoE radius 3.5
+            this.spawnBullet(pos, rot, 30, damage, 'heavy', 0, 3.5);
             if (this.audio) this.audio.laser('heavy');
         } else if (vType === 'phantom') {
             baseRate = 0.28;
@@ -81,7 +92,17 @@ export class WeaponsManager {
             mat = this.phaseMat;
         }
 
-        const mesh = new THREE.Mesh(geo, mat);
+        let mesh = null;
+        // Check inactive bullet pool
+        if (this.bulletPool.length > 0) {
+            mesh = this.bulletPool.pop();
+            mesh.geometry = geo;
+            mesh.material = mat;
+            mesh.visible = true;
+        } else {
+            mesh = new THREE.Mesh(geo, mat);
+            this.scene.add(mesh);
+        }
 
         const forward = new THREE.Vector3(Math.sin(rot), 0, Math.cos(rot));
         const right = new THREE.Vector3(Math.cos(rot), 0, -Math.sin(rot));
@@ -90,38 +111,47 @@ export class WeaponsManager {
         mesh.position.y = 0.6;
         mesh.rotation.y = rot;
 
-        this.scene.add(mesh);
-
         this.playerBullets.push({
             mesh,
             velocity: forward.multiplyScalar(speed),
             damage,
             type,
             aoe,
-            lifetime: 1.8,
+            lifetime: 2.2,
         });
     }
 
-    fireEnemyWeapon(enemyPos, targetPos, speed = 22, damage = 14) {
-        const mesh = new THREE.Mesh(this.enemyGeo, this.enemyMat);
-        mesh.position.copy(enemyPos);
-        mesh.position.y = 0.6;
-        this.scene.add(mesh);
+    spawnEnemyBullet(pos, targetPos, speed = 22, damage = 12) {
+        let mesh = null;
+        if (this.bulletPool.length > 0) {
+            mesh = this.bulletPool.pop();
+            mesh.geometry = this.enemyGeo;
+            mesh.material = this.enemyMat;
+            mesh.visible = true;
+        } else {
+            mesh = new THREE.Mesh(this.enemyGeo, this.enemyMat);
+            this.scene.add(mesh);
+        }
 
-        const dir = targetPos.clone().sub(enemyPos).setY(0).normalize();
+        mesh.position.copy(pos);
+        mesh.position.y = 0.6;
+
+        const dir = targetPos.clone().sub(pos);
+        dir.y = 0;
+        dir.normalize();
 
         this.enemyBullets.push({
             mesh,
             velocity: dir.multiplyScalar(speed),
             damage,
-            lifetime: 2.2,
+            lifetime: 3.5,
         });
     }
 
     update(dt, enemies, player, arena) {
-        if (this.fireCooldown > 0) this.fireCooldown -= dt;
+        this.fireCooldown = Math.max(0, this.fireCooldown - dt);
 
-        // 1. Update Player Bullets
+        // 1. Update Player Projectiles
         for (let i = this.playerBullets.length - 1; i >= 0; i--) {
             const b = this.playerBullets[i];
             b.lifetime -= dt;
@@ -132,46 +162,50 @@ export class WeaponsManager {
             // Check collision with enemies
             for (let j = 0; j < enemies.length; j++) {
                 const enemy = enemies[j];
-                const dist = b.mesh.position.distanceTo(enemy.position);
+                if (enemy.isDead) continue;
 
-                if (dist < (enemy.radius + 0.3)) {
+                const dist = b.mesh.position.distanceTo(enemy.position);
+                if (dist < (enemy.radius + 0.4)) {
                     hit = true;
                     this.shotsHit++;
                     this.totalDamageDealt += b.damage;
 
                     if (b.aoe > 0) {
-                        // Heavy explosive splash damage
-                        enemies.forEach(e => {
-                            const splashDist = b.mesh.position.distanceTo(e.position);
-                            if (splashDist < b.aoe) {
-                                e.takeDamage(b.damage * (1 - (splashDist / b.aoe)));
+                        for (let e = 0; e < enemies.length; e++) {
+                            const oEnemy = enemies[e];
+                            if (oEnemy.isDead) continue;
+                            const aoeDist = b.mesh.position.distanceTo(oEnemy.position);
+                            if (aoeDist < b.aoe) {
+                                const falloff = 1 - (aoeDist / b.aoe);
+                                oEnemy.takeDamage(Math.round(b.damage * falloff));
                             }
-                        });
-                        this.spawnExplosion(b.mesh.position, 0xff3b00, 24);
+                        }
+                        this.spawnExplosion(b.mesh.position, 16);
                         if (this.audio) this.audio.explosion('medium');
                     } else {
                         enemy.takeDamage(b.damage);
-                        this.spawnHitSparks(b.mesh.position, 0x00f0ff, 8);
+                        this.spawnHitSparks(b.mesh.position, this.sparkMatCyan, 6);
                     }
                     break;
                 }
             }
 
-            // Check collision with arena obstacles
+            // Check collision with obstacles
             if (!hit) {
                 for (let k = 0; k < arena.obstacles.length; k++) {
                     const obs = arena.obstacles[k];
                     const d = Math.hypot(b.mesh.position.x - obs.x, b.mesh.position.z - obs.z);
                     if (d < obs.radius) {
                         hit = true;
-                        this.spawnHitSparks(b.mesh.position, 0x88bbff, 6);
+                        this.spawnHitSparks(b.mesh.position, this.sparkMatCyan, 4);
                         break;
                     }
                 }
             }
 
             if (hit || b.lifetime <= 0) {
-                this.scene.remove(b.mesh);
+                b.mesh.visible = false;
+                this.bulletPool.push(b.mesh);
                 this.playerBullets.splice(i, 1);
             }
         }
@@ -188,7 +222,7 @@ export class WeaponsManager {
             if (distToPlayer < 1.4) {
                 hit = true;
                 player.takeDamage(eb.damage);
-                this.spawnHitSparks(eb.mesh.position, 0xff2a5f, 8);
+                this.spawnHitSparks(eb.mesh.position, this.sparkMatRed, 6);
             }
 
             if (!hit) {
@@ -197,14 +231,15 @@ export class WeaponsManager {
                     const d = Math.hypot(eb.mesh.position.x - obs.x, eb.mesh.position.z - obs.z);
                     if (d < obs.radius) {
                         hit = true;
-                        this.spawnHitSparks(eb.mesh.position, 0xff5577, 4);
+                        this.spawnHitSparks(eb.mesh.position, this.sparkMatRed, 3);
                         break;
                     }
                 }
             }
 
             if (hit || eb.lifetime <= 0) {
-                this.scene.remove(eb.mesh);
+                eb.mesh.visible = false;
+                this.bulletPool.push(eb.mesh);
                 this.enemyBullets.splice(i, 1);
             }
         }
@@ -217,56 +252,89 @@ export class WeaponsManager {
             p.mesh.scale.multiplyScalar(0.92);
 
             if (p.life <= 0) {
-                this.scene.remove(p.mesh);
+                p.mesh.visible = false;
+                this.particlePool.push(p.mesh);
                 this.particles.splice(i, 1);
             }
         }
     }
 
-    spawnHitSparks(pos, color, count = 8) {
-        const geo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
-        const mat = new THREE.MeshBasicMaterial({ color });
-
+    spawnHitSparks(pos, material, count = 6) {
         for (let i = 0; i < count; i++) {
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.copy(pos);
-            this.scene.add(mesh);
+            let mesh = null;
+            if (this.particlePool.length > 0) {
+                mesh = this.particlePool.pop();
+                mesh.geometry = this.sparkGeo;
+                mesh.material = material;
+                mesh.scale.set(1, 1, 1);
+                mesh.visible = true;
+            } else {
+                mesh = new THREE.Mesh(this.sparkGeo, material);
+                this.scene.add(mesh);
+            }
 
+            mesh.position.copy(pos);
             const vel = new THREE.Vector3(
                 (Math.random() - 0.5) * 12,
                 Math.random() * 8,
                 (Math.random() - 0.5) * 12
             );
-
-            this.particles.push({ mesh, velocity: vel, life: 0.25 });
+            this.particles.push({ mesh, velocity: vel, life: 0.22 });
         }
     }
 
-    spawnExplosion(pos, color, count = 20) {
-        const geo = new THREE.DodecahedronGeometry(0.18);
-        const mat = new THREE.MeshBasicMaterial({ color });
-
+    spawnExplosion(pos, count = 16) {
         for (let i = 0; i < count; i++) {
-            const mesh = new THREE.Mesh(geo, mat);
+            let mesh = null;
+            if (this.particlePool.length > 0) {
+                mesh = this.particlePool.pop();
+                mesh.geometry = this.explosionGeo;
+                mesh.material = this.sparkMatOrange;
+                mesh.scale.set(1, 1, 1);
+                mesh.visible = true;
+            } else {
+                mesh = new THREE.Mesh(this.explosionGeo, this.sparkMatOrange);
+                this.scene.add(mesh);
+            }
+
             mesh.position.copy(pos);
-            this.scene.add(mesh);
-
             const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 22,
-                Math.random() * 14,
-                (Math.random() - 0.5) * 22
+                (Math.random() - 0.5) * 20,
+                Math.random() * 12,
+                (Math.random() - 0.5) * 20
             );
-
-            this.particles.push({ mesh, velocity: vel, life: 0.45 });
+            this.particles.push({ mesh, velocity: vel, life: 0.38 });
         }
     }
 
     clear() {
-        this.playerBullets.forEach(b => this.scene.remove(b.mesh));
-        this.enemyBullets.forEach(eb => this.scene.remove(eb.mesh));
-        this.particles.forEach(p => this.scene.remove(p.mesh));
+        this.playerBullets.forEach(b => { b.mesh.visible = false; this.bulletPool.push(b.mesh); });
+        this.enemyBullets.forEach(eb => { eb.mesh.visible = false; this.bulletPool.push(eb.mesh); });
+        this.particles.forEach(p => { p.mesh.visible = false; this.particlePool.push(p.mesh); });
         this.playerBullets = [];
         this.enemyBullets = [];
         this.particles = [];
+    }
+
+    dispose() {
+        this.clear();
+        this.bulletPool.forEach(m => { this.scene.remove(m); });
+        this.particlePool.forEach(m => { this.scene.remove(m); });
+        this.bulletPool = [];
+        this.particlePool = [];
+
+        this.plasmaGeo.dispose();
+        this.plasmaMat.dispose();
+        this.heavyGeo.dispose();
+        this.heavyMat.dispose();
+        this.phaseGeo.dispose();
+        this.phaseMat.dispose();
+        this.enemyGeo.dispose();
+        this.enemyMat.dispose();
+        this.sparkGeo.dispose();
+        this.sparkMatCyan.dispose();
+        this.sparkMatOrange.dispose();
+        this.sparkMatRed.dispose();
+        this.explosionGeo.dispose();
     }
 }

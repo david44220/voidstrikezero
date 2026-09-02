@@ -6,4 +6,6 @@
 /storage/cache/*
 /public/uploads/avatars/*
 !/public/uploads/avatars/.gitkeep
+/storage/mail/*.html
+!/storage/mail/.gitkeep
 /vendor

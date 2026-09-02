@@ -1,4 +1,19 @@
 <div class="container" style="padding-top: 3.5rem; padding-bottom: 5rem;">
+    <?php if (!$user->isEmailVerified()): ?>
+        <div class="card" style="margin-bottom: 1.5rem; background: rgba(255, 170, 0, 0.1); border: 1px solid #ffaa00; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+                <span class="eyebrow" style="color: #ffaa00; margin: 0;">CLEARANCE PENDING</span>
+                <div style="font-size: 0.95rem; color: #fff;">Neural-link email (<?= e($user->email) ?>) is unverified. Verify to protect your pilot records.</div>
+            </div>
+            <form method="POST" action="/verify-email/resend" style="margin: 0;">
+                <?= csrf_field() ?>
+                <button type="submit" class="btn btn--outline btn--sm" style="border-color: #ffaa00; color: #ffaa00;">
+                    Resend Transmission
+                </button>
+            </form>
+        </div>
+    <?php endif; ?>
+
     <!-- Pilot Header Card -->
     <div class="card card--glow-cyan" style="margin-bottom: 2.5rem; padding: 2rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem;">

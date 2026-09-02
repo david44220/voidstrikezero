@@ -83,6 +83,14 @@ abstract class TestCase
         }
     }
 
+    protected function assertStringNotContains(string $needle, string $haystack, string $message = ''): void
+    {
+        $this->assertions++;
+        if (str_contains($haystack, $needle)) {
+            throw new Exception($message ?: "Failed asserting that '{$haystack}' does not contain '{$needle}'.");
+        }
+    }
+
     protected function assertArrayHasKey(string|int $key, array $array, string $message = ''): void
     {
         $this->assertions++;

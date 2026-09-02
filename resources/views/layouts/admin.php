@@ -74,7 +74,8 @@
                     <li><a href="/admin/matches"><?= e(__('admin.manage_matches')) ?></a></li>
                     <li><a href="/admin/challenges"><?= e(__('nav.challenges')) ?></a></li>
                     <li><a href="/admin/audit"><?= e(__('admin.audit_logs')) ?></a></li>
-                    <li style="margin-top: 2rem;"><a href="/" style="color: var(--text-dim);">← Exit to Platform</a></li>
+                    <li><a href="/admin/settings"><?= e(__('admin.settings_title')) ?></a></li>
+                    <li style="margin-top: 2rem;"><a href="/" style="color: var(--text-dim);">← <?= e(__('admin.exit_platform')) ?></a></li>
                 </ul>
             </nav>
 

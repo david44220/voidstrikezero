@@ -26,26 +26,30 @@ class MatchRepository
         ?string $arena = null,
         ?string $search = null
     ): array {
-        $sql = "SELECT m.*, u.username, u.display_name, u.avatar_url, u.level as user_level 
-                FROM matches m 
-                INNER JOIN users u ON u.id = m.user_id 
-                WHERE m.status = 'completed'";
+        $where = "m.status = 'completed' AND m.user_id IS NOT NULL";
         $params = [];
 
         if ($vehicle) {
-            $sql .= " AND m.vehicle_class = :veh";
+            $where .= " AND m.vehicle_class = :veh";
             $params[':veh'] = $vehicle;
         }
         if ($arena) {
-            $sql .= " AND m.arena_id = :arena";
+            $where .= " AND m.arena_id = :arena";
             $params[':arena'] = $arena;
         }
         if ($search) {
-            $sql .= " AND (LOWER(u.username) LIKE :s OR LOWER(u.display_name) LIKE :s)";
+            $where .= " AND (LOWER(u.username) LIKE :s OR LOWER(u.display_name) LIKE :s)";
             $params[':s'] = '%' . strtolower($search) . '%';
         }
 
-        $sql .= " ORDER BY m.score DESC, m.finished_at ASC LIMIT :lim";
+        $sql = "WITH ranked_matches AS (
+                    SELECT m.*, u.username, u.display_name, u.avatar_url, u.level as user_level,
+                           ROW_NUMBER() OVER (PARTITION BY m.user_id ORDER BY m.score DESC, m.finished_at ASC) as rn
+                    FROM matches m
+                    INNER JOIN users u ON u.id = m.user_id
+                    WHERE {$where}
+                )
+                SELECT * FROM ranked_matches WHERE rn = 1 ORDER BY score DESC, finished_at ASC LIMIT :lim";
         $params[':lim'] = $limit;
 
         return Database::select($sql, $params);
@@ -57,27 +61,30 @@ class MatchRepository
         ?string $arena = null,
         ?string $search = null
     ): array {
-        $sql = "SELECT m.*, u.username, u.display_name, u.avatar_url, u.level as user_level 
-                FROM matches m 
-                INNER JOIN users u ON u.id = m.user_id 
-                WHERE m.status = 'completed' 
-                  AND m.finished_at >= (CURRENT_TIMESTAMP - INTERVAL '7 days')";
+        $where = "m.status = 'completed' AND m.user_id IS NOT NULL AND m.finished_at >= (CURRENT_TIMESTAMP - INTERVAL '7 days')";
         $params = [];
 
         if ($vehicle) {
-            $sql .= " AND m.vehicle_class = :veh";
+            $where .= " AND m.vehicle_class = :veh";
             $params[':veh'] = $vehicle;
         }
         if ($arena) {
-            $sql .= " AND m.arena_id = :arena";
+            $where .= " AND m.arena_id = :arena";
             $params[':arena'] = $arena;
         }
         if ($search) {
-            $sql .= " AND (LOWER(u.username) LIKE :s OR LOWER(u.display_name) LIKE :s)";
+            $where .= " AND (LOWER(u.username) LIKE :s OR LOWER(u.display_name) LIKE :s)";
             $params[':s'] = '%' . strtolower($search) . '%';
         }
 
-        $sql .= " ORDER BY m.score DESC, m.finished_at ASC LIMIT :lim";
+        $sql = "WITH ranked_matches AS (
+                    SELECT m.*, u.username, u.display_name, u.avatar_url, u.level as user_level,
+                           ROW_NUMBER() OVER (PARTITION BY m.user_id ORDER BY m.score DESC, m.finished_at ASC) as rn
+                    FROM matches m
+                    INNER JOIN users u ON u.id = m.user_id
+                    WHERE {$where}
+                )
+                SELECT * FROM ranked_matches WHERE rn = 1 ORDER BY score DESC, finished_at ASC LIMIT :lim";
         $params[':lim'] = $limit;
 
         return Database::select($sql, $params);
@@ -85,20 +92,26 @@ class MatchRepository
 
     public static function getUserRank(int $userId): ?int
     {
-        // Calculate pilot's highest score rank
+        // Calculate pilot's highest score rank among all unique pilots' best scores
         $pb = self::getPersonalBest($userId);
         if (!$pb) {
             return null;
         }
 
         $rank = Database::selectValue(
-            "SELECT COUNT(*) + 1 
-             FROM matches 
-             WHERE status = 'completed' AND score > :pb_score",
+            "WITH best_scores AS (
+                SELECT user_id, MAX(score) as max_score
+                FROM matches
+                WHERE status = 'completed' AND user_id IS NOT NULL
+                GROUP BY user_id
+             )
+             SELECT COUNT(*) + 1 
+             FROM best_scores 
+             WHERE max_score > :pb_score",
             [':pb_score' => $pb['score']]
         );
 
-        return (int) $rank;
+        return $rank !== null ? (int) $rank : null;
     }
 
     public static function getPersonalBest(int $userId): ?array

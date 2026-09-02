@@ -21,11 +21,6 @@
                 <input type="password" id="password" name="password" class="form-control" required>
             </div>
 
-            <div class="form-group" style="display: flex; align-items: center; gap: 0.6rem;">
-                <input type="checkbox" id="remember" name="remember" value="1" style="accent-color: var(--cyan); width: 16px; height: 16px;">
-                <label for="remember" style="font-size: 0.85rem; color: var(--text-muted); cursor: pointer;"><?= e(__('auth.remember')) ?></label>
-            </div>
-
             <button type="submit" class="btn btn--primary" style="width: 100%; margin-top: 1rem;">
                 <?= e(__('auth.submit_login')) ?>
             </button>

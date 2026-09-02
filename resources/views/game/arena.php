@@ -80,7 +80,16 @@
         <div class="modal" style="text-align: center;">
             <span class="eyebrow"><?= e(__('game.paused')) ?></span>
             <h2 style="font-size: 2rem; margin: 0.5rem 0 1.5rem;"><?= e(__('game.paused')) ?></h2>
-            <p style="color: var(--text-muted); margin-bottom: 2rem;"><?= e(__('game.controls_desktop')) ?></p>
+            <div style="margin: 1.5rem 0; padding: 1rem; background: rgba(0,0,0,0.4); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+                <span class="eyebrow" style="font-size: 0.75rem; margin-bottom: 0.5rem; display: block;">GRAPHICS QUALITY PRESET</span>
+                <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button type="button" class="btn btn--sm btn--outline btn-gfx" data-preset="auto">Auto</button>
+                    <button type="button" class="btn btn--sm btn--outline btn-gfx" data-preset="low">Low</button>
+                    <button type="button" class="btn btn--sm btn--outline btn-gfx" data-preset="medium">Med</button>
+                    <button type="button" class="btn btn--sm btn--outline btn-gfx" data-preset="high">High</button>
+                </div>
+            </div>
+
             <div style="display: flex; gap: 1rem; justify-content: center;">
                 <button type="button" class="btn btn--primary" id="btn-resume"><?= e(__('game.resume')) ?></button>
                 <a href="/" class="btn btn--outline"><?= e(__('game.abort')) ?></a>

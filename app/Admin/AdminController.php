@@ -167,4 +167,56 @@ class AdminController
 
         return redirect('/admin/matches');
     }
+
+    public function settings(Request $request): Response
+    {
+        $settingsRows = Database::select("SELECT * FROM system_settings");
+        $settings = [];
+        foreach ($settingsRows as $row) {
+            $settings[$row['key']] = $row['value'];
+        }
+
+        return view('admin.settings', [
+            'settings' => $settings,
+            'title' => 'Admin // Platform Settings',
+        ], 'layouts.admin');
+    }
+
+    public function updateSettings(Request $request): Response
+    {
+        $seasonTitle = trim((string) $request->input('season_title', 'Season 1 // Void Genesis'));
+        $seasonEndDate = trim((string) $request->input('season_end_date', '2026-12-31'));
+        $maintenance = (string) $request->input('maintenance_mode', '0');
+        $maxScoreRate = (string) $request->input('max_score_per_sec', '280');
+        $clockDrift = (string) $request->input('clock_drift_tol', '15');
+
+        $updates = [
+            'season_title' => $seasonTitle,
+            'season_end_date' => $seasonEndDate,
+            'maintenance_mode' => $maintenance,
+            'max_score_per_sec' => $maxScoreRate,
+            'clock_drift_tol' => $clockDrift,
+        ];
+
+        foreach ($updates as $key => $val) {
+            Database::query(
+                "INSERT INTO system_settings (key, value, updated_at) 
+                 VALUES (:k, :v, CURRENT_TIMESTAMP) 
+                 ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = CURRENT_TIMESTAMP",
+                [':k' => $key, ':v' => $val]
+            );
+        }
+
+        AuditLogger::log(
+            AuthService::id(),
+            'update_system_settings',
+            'settings',
+            'global',
+            $updates,
+            $request->ip()
+        );
+
+        flash('success', 'Platform settings and season parameters committed.');
+        return redirect('/admin/settings');
+    }
 }

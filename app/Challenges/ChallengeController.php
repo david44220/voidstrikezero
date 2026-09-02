@@ -85,7 +85,10 @@ class ChallengeController
 
         $challengeId = ChallengeRepository::create($user->id, $score, $vehicle, $arena, $diff, 7);
 
-        flash('success', 'Challenge broadcast successfully to the galactic network!');
+        // Award 'challenger' accolade for creating a duel
+        \App\Achievements\AchievementService::awardDirect($user, 'challenger');
+
+        flash('success', __('challenges.created_success'));
         return redirect('/challenge/' . $challengeId);
     }
 }

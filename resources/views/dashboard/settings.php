@@ -51,5 +51,36 @@
                 <?= e(__('dashboard.update_profile')) ?>
             </button>
         </form>
+
+        <!-- Passcode Change Section -->
+        <div style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border-subtle);">
+            <div style="margin-bottom: 1.5rem;">
+                <span class="eyebrow"><?= e(__('auth.reset_title')) ?></span>
+                <h3 style="font-size: 1.4rem;"><?= e(__('auth.new_password')) ?></h3>
+            </div>
+
+            <form method="POST" action="/settings/password">
+                <?= csrf_field() ?>
+
+                <div class="form-group">
+                    <label for="current_password" class="form-label"><?= e(__('auth.password')) ?> (Current)</label>
+                    <input type="password" id="current_password" name="current_password" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="new_password" class="form-label"><?= e(__('auth.new_password')) ?></label>
+                    <input type="password" id="new_password" name="new_password" class="form-control" required minlength="8">
+                </div>
+
+                <div class="form-group">
+                    <label for="new_password_confirmation" class="form-label"><?= e(__('auth.password_confirm')) ?></label>
+                    <input type="password" id="new_password_confirmation" name="new_password_confirmation" class="form-control" required minlength="8">
+                </div>
+
+                <button type="submit" class="btn btn--secondary" style="width: 100%; margin-top: 0.5rem;">
+                    <?= e(__('auth.reset_password_btn')) ?>
+                </button>
+            </form>
+        </div>
     </div>
 </div>

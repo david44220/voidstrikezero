@@ -17,6 +17,21 @@ echo "=======================================\n";
 echo " VOIDSTRIKE ARENA - Database Seeder\n";
 echo "=======================================\n";
 
+$isProduction = config('app.env') === 'production';
+$force = in_array('--force', $argv ?? [], true);
+
+if ($isProduction && !$force) {
+    echo "[ABORTED] Cannot execute database demo seeder in production without explicit --force flag.\n";
+    exit(1);
+}
+
+$adminPassword = $isProduction ? bin2hex(random_bytes(16)) : 'AdminPassword2026!';
+if ($isProduction) {
+    echo "\n[CRITICAL SECURITY ALERT] Production administrator account initialized.\n";
+    echo "Temporary Master Password: {$adminPassword}\n";
+    echo "Store this securely and rotate immediately.\n\n";
+}
+
 try {
     $pdo = Database::connection();
     echo "[OK] Connected to database.\n";
@@ -130,7 +145,7 @@ try {
         [
             'username' => 'admin',
             'email' => 'admin@voidstrike.io',
-            'password' => 'AdminPassword2026!',
+            'password' => $adminPassword,
             'display_name' => 'Nexus Commander',
             'role' => 'admin',
             'xp' => 45000,

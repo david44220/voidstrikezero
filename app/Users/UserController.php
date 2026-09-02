@@ -7,6 +7,7 @@ namespace App\Users;
 use App\Auth\AuthService;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Session;
 use App\Core\Validator;
 use App\Matches\MatchRepository;
 
@@ -79,6 +80,41 @@ class UserController
         session()->set('locale', $user->preferred_locale);
 
         flash('success', __('dashboard.profile_updated'));
+        return redirect('/settings');
+    }
+
+    public function changePassword(Request $request): Response
+    {
+        $user = AuthService::user();
+        if (!$user) {
+            return redirect('/login');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required',
+            'new_password' => 'required|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            flash('error', $validator->firstError());
+            return redirect('/settings');
+        }
+
+        $currentPass = (string) $request->input('current_password');
+        $newPass = (string) $request->input('new_password');
+
+        if (!$user->verifyPassword($currentPass)) {
+            flash('error', 'Current passcode verification failed. Access denied.');
+            return redirect('/settings');
+        }
+
+        $user->password_hash = AuthService::hashPassword($newPass);
+        $user->save();
+
+        // Invalidate prior session state and regenerate security session
+        Session::getInstance()->regenerate(true);
+
+        flash('success', 'Passcode updated successfully. Session re-authenticated.');
         return redirect('/settings');
     }
 
